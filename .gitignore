@@ -34,11 +34,15 @@ env/
 Thumbs.db
 
 # Project-specific ignores
-# Add any specific files or directories you want to ignore below
 .env  # Explicitly ignore .env file
 *.env  # Ignore any .env files
 
 # Generated monsters
 generated_monsters/
 *.json
-*.md
+
+# GitHub repository information
+github_repo_info.txt
+
+# Workflow guide (optional)
+PROJECT_WORKFLOW_GUIDE.md
