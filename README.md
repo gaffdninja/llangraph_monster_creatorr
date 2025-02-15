@@ -10,6 +10,22 @@ This project is an AI-powered Dungeons & Dragons monster generator that uses adv
 - 🎲 Comprehensive monster attribute creation
 - 📊 Detailed monster statistics and lore
 - 🌟 Unique monster concepts
+- **NEW: Interactive Narrative Input**
+  - 5 narrative questions to personalize monster generation
+  - User-driven storytelling elements
+  - Enhanced monster backstory and motivation
+
+### Narrative Input Questions
+
+When you run the monster generator, you'll be prompted to answer 5 key narrative questions:
+
+1. What dark secret haunts this monster's past?
+2. In what unique environment does this monster thrive?
+3. What is the monster's most unexpected motivation?
+4. How does this monster interact with other creatures?
+5. What makes this monster truly terrifying?
+
+Your answers will be integrated into the monster's concept, making each generated monster truly unique!
 
 ## Prerequisites
 
@@ -48,6 +64,46 @@ Run the monster generator:
 ```bash
 python monster_agent.py
 ```
+
+## Testing and Automation
+
+### Test Monster Generator
+
+The `test_monster_generator.py` script provides several ways to automate monster generation:
+
+#### Features
+- Simulate user inputs for narrative questions
+- Generate a single monster with default or custom inputs
+- Batch generate multiple monsters with varied narrative inputs
+
+#### Usage Examples
+
+```bash
+# Generate a single monster with default inputs
+python test_monster_generator.py
+
+# In your Python script
+from test_monster_generator import test_monster_generation, batch_generate_monsters
+
+# Generate a single monster with custom inputs
+custom_inputs = [
+    "A dark ritual gone wrong",
+    "Misty mountain peaks",
+    "Collecting lost memories",
+    "Observes creatures from a distance",
+    "Absorbs and weaponizes deepest fears"
+]
+monster = test_monster_generation(custom_inputs)
+
+# Generate a batch of monsters
+batch_monsters = batch_generate_monsters(num_monsters=3)
+```
+
+### Test Scenarios
+- Default narrative inputs
+- Custom narrative inputs
+- Batch monster generation
+- Error handling and input validation
 
 ## Generated Monsters
 

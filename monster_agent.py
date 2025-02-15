@@ -9,6 +9,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field, ConfigDict
 import random
 from dotenv import load_dotenv
+import time
 
 # Load API key from .env file
 load_dotenv()
@@ -42,6 +43,7 @@ class MonsterGenerationState(BaseModel):
     initial_concept: Optional[str] = None
     monster_draft: Optional[Dict[str, Any]] = None
     refined_monster: Optional[Dict[str, Any]] = None
+    user_narrative_inputs: Optional[Dict[str, str]] = None  # New field for user inputs
 
     def __repr__(self):
         """Provide a detailed string representation for debugging."""
@@ -50,6 +52,7 @@ class MonsterGenerationState(BaseModel):
             f"  initial_concept: {self.initial_concept}\n"
             f"  monster_draft: {bool(self.monster_draft)}\n"
             f"  refined_monster: {bool(self.refined_monster)}\n"
+            f"  user_narrative_inputs: {bool(self.user_narrative_inputs)}\n"
             ")"
         )
 
@@ -57,6 +60,13 @@ class MonsterGenerator:
     def __init__(self, model_name="deepseek-r1-distill-llama-70b"):
         self.llm = ChatGroq(model=model_name, temperature=0.9)
         self.parser = PydanticOutputParser(pydantic_object=Monster)
+        self.narrative_questions = [
+            "What dark secret haunts this monster's past?",
+            "In what unique environment does this monster thrive?",
+            "What is the monster's most unexpected motivation?",
+            "How does this monster interact with other creatures?",
+            "What makes this monster truly terrifying?"
+        ]
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
         """Extract JSON from text, handling various formats."""
@@ -84,6 +94,55 @@ class MonsterGenerator:
             print(text)
             raise
 
+    def get_user_narrative_inputs(self, state: MonsterGenerationState) -> MonsterGenerationState:
+        """Collect user narrative inputs for monster generation."""
+        print("\n🐉 Monster Creation Narrative Input 🐉")
+        print("Please answer these 5 narrative questions to help shape your monster:\n")
+        
+        user_inputs = {}
+        for i, question in enumerate(self.narrative_questions, 1):
+            user_input = input(f"{i}. {question}\n   > ").strip()
+            user_inputs[f"question_{i}"] = user_input
+        
+        new_state = MonsterGenerationState(
+            initial_concept=state.initial_concept,
+            monster_draft=state.monster_draft,
+            refined_monster=state.refined_monster,
+            user_narrative_inputs=user_inputs
+        )
+        
+        return new_state
+
+    def incorporate_narrative_inputs(self, state: MonsterGenerationState) -> MonsterGenerationState:
+        """Incorporate user narrative inputs into the monster generation process."""
+        if not state.user_narrative_inputs:
+            return state
+        
+        narrative_prompt = ChatPromptTemplate.from_template(
+            "Use these narrative inputs to enhance the monster's concept and lore:\n"
+            "{narrative_inputs}\n\n"
+            "Original Monster Concept: {initial_concept}\n\n"
+            "Incorporate these narrative details into the monster's backstory, motivations, "
+            "and unique characteristics. Provide a refined concept that integrates these inputs.\n\n"
+            "Refined Concept: "
+        )
+        
+        chain = narrative_prompt | self.llm
+        refined_concept = chain.invoke({
+            "narrative_inputs": "\n".join([f"Q: {q}\nA: {a}" for q, a in state.user_narrative_inputs.items()]),
+            "initial_concept": state.initial_concept or "A mysterious and unique monster"
+        }).content
+        
+        new_state = MonsterGenerationState(
+            initial_concept=refined_concept,
+            monster_draft=state.monster_draft,
+            refined_monster=state.refined_monster,
+            user_narrative_inputs=state.user_narrative_inputs
+        )
+        
+        print("🌟 Narrative inputs incorporated into monster concept 🌟")
+        return new_state
+
     def generate_concept(self, state: MonsterGenerationState) -> MonsterGenerationState:
         """Generate an initial monster concept."""
         concept_prompt = ChatPromptTemplate.from_template(
@@ -100,7 +159,8 @@ class MonsterGenerator:
         new_state = MonsterGenerationState(
             initial_concept=concept,
             monster_draft=state.monster_draft,
-            refined_monster=state.refined_monster
+            refined_monster=state.refined_monster,
+            user_narrative_inputs=state.user_narrative_inputs
         )
         
         print(f"Generated Concept: {concept}")
@@ -136,7 +196,8 @@ class MonsterGenerator:
         new_state = MonsterGenerationState(
             initial_concept=state.initial_concept,
             monster_draft=monster_draft_dict,
-            refined_monster=state.refined_monster
+            refined_monster=state.refined_monster,
+            user_narrative_inputs=state.user_narrative_inputs
         )
         
         print("Monster Draft Created")
@@ -172,24 +233,33 @@ class MonsterGenerator:
         new_state = MonsterGenerationState(
             initial_concept=state.initial_concept,
             monster_draft=state.monster_draft,
-            refined_monster=refined_monster_dict
+            refined_monster=refined_monster_dict,
+            user_narrative_inputs=state.user_narrative_inputs
         )
         
         print("Monster Refined Successfully")
         return new_state
 
 def create_monster_generation_graph():
-    """Create the LangGraph workflow for monster generation."""
+    """
+    Create the LangGraph workflow for monster generation.
+    
+    The workflow now includes user narrative input collection and incorporation.
+    """
     workflow = StateGraph(MonsterGenerationState)
     
     generator = MonsterGenerator()
     
+    workflow.add_node("get_user_inputs", generator.get_user_narrative_inputs)
     workflow.add_node("generate_concept", generator.generate_concept)
+    workflow.add_node("incorporate_narrative", generator.incorporate_narrative_inputs)
     workflow.add_node("draft_monster", generator.draft_monster)
     workflow.add_node("refine_monster", generator.refine_monster)
     
-    workflow.set_entry_point("generate_concept")
-    workflow.add_edge("generate_concept", "draft_monster")
+    workflow.set_entry_point("get_user_inputs")
+    workflow.add_edge("get_user_inputs", "generate_concept")
+    workflow.add_edge("generate_concept", "incorporate_narrative")
+    workflow.add_edge("incorporate_narrative", "draft_monster")
     workflow.add_edge("draft_monster", "refine_monster")
     workflow.add_edge("refine_monster", END)
     
@@ -207,58 +277,49 @@ def generate_amazing_monster():
             return None
         os.environ["GROQ_API_KEY"] = api_key
 
-    graph = create_monster_generation_graph()
-    
-    # Ensure initial state has a default initial concept
+    # Initialize the state
     initial_state = MonsterGenerationState(
         initial_concept="Create a unique and unexpected D&D monster",
         monster_draft=None,
-        refined_monster=None
+        refined_monster=None,
+        user_narrative_inputs=None
     )
-    
+
+    # Create the monster generation graph
+    monster_graph = create_monster_generation_graph()
+
     try:
-        # Use stream to get more detailed error information
-        result_stream = list(graph.stream(initial_state))
+        # Run the monster generation workflow
+        refined_monster = monster_graph.invoke(initial_state)
         
-        # Get the final state
-        final_state = result_stream[-1]
-        
-        # Extract the refined monster from various possible locations
-        refined_monster = None
-        
-        # Check different possible locations for the refined monster
-        possible_locations = [
-            final_state.get('refined_monster'),
-            final_state.get('refine_monster', {}).get('refined_monster'),
-            final_state.get('MonsterGenerationState', {}).get('refined_monster')
-        ]
-        
-        for location in possible_locations:
-            if location:
-                refined_monster = location
-                break
-        
-        if not refined_monster:
-            print("❌ Failed to generate a monster. No refined monster found.")
+        # Ensure refined_monster is a dictionary
+        if not isinstance(refined_monster, dict):
+            print("❌ Monster generation did not produce a valid monster dictionary.")
             return None
         
         # Ensure the monster has a name for the filename
         monster_name = refined_monster.get('name', 'unnamed_monster')
         
+        # Prepare filenames
+        base_filename = f"generated_monster_{int(time.time())}"
+        filename = f"generated_monsters/{monster_name.lower().replace(' ', '_')}.json"
+        md_filename = f"generated_monsters/{monster_name.lower().replace(' ', '_')}.md"
+        
+        # Ensure the generated_monsters directory exists
+        os.makedirs("generated_monsters", exist_ok=True)
+        
         print("🐉 AMAZING D&D MONSTER GENERATED! 🐉")
         print(json.dumps(refined_monster, indent=2))
         
-        # Optional: Save monster to a JSON file
-        os.makedirs("generated_monsters", exist_ok=True)
-        filename = f"generated_monsters/{monster_name.lower().replace(' ', '_')}.json"
+        # Save JSON
         with open(filename, 'w') as f:
             json.dump(refined_monster, f, indent=2)
         
-        # Create a markdown file with a more readable format
-        md_filename = f"generated_monsters/{monster_name.lower().replace(' ', '_')}.md"
+        # Save Markdown
         with open(md_filename, 'w') as f:
             f.write(f"# {monster_name}\n\n")
-            f.write(f"## Basic Information\n")
+            
+            f.write("## Basic Information\n")
             f.write(f"- **Size:** {refined_monster.get('size', 'Unknown')}\n")
             f.write(f"- **Type:** {refined_monster.get('type', 'Unknown')}\n")
             f.write(f"- **Alignment:** {refined_monster.get('alignment', 'Unknown')}\n")
@@ -267,12 +328,12 @@ def generate_amazing_monster():
             
             f.write(f"## Abilities\n")
             abilities = refined_monster.get('abilities', {})
-            f.write(f"- **Strength:** {abilities.get('str', 'Unknown')}\n")
-            f.write(f"- **Dexterity:** {abilities.get('dex', 'Unknown')}\n")
-            f.write(f"- **Constitution:** {abilities.get('con', 'Unknown')}\n")
-            f.write(f"- **Intelligence:** {abilities.get('int', 'Unknown')}\n")
-            f.write(f"- **Wisdom:** {abilities.get('wis', 'Unknown')}\n")
-            f.write(f"- **Charisma:** {abilities.get('cha', 'Unknown')}\n\n")
+            f.write(f"- **Strength:** {abilities.get('Strength', 'Unknown')}\n")
+            f.write(f"- **Dexterity:** {abilities.get('Dexterity', 'Unknown')}\n")
+            f.write(f"- **Constitution:** {abilities.get('Constitution', 'Unknown')}\n")
+            f.write(f"- **Intelligence:** {abilities.get('Intelligence', 'Unknown')}\n")
+            f.write(f"- **Wisdom:** {abilities.get('Wisdom', 'Unknown')}\n")
+            f.write(f"- **Charisma:** {abilities.get('Charisma', 'Unknown')}\n\n")
             
             f.write(f"## Speed\n")
             speed = refined_monster.get('speed', {})
@@ -283,14 +344,34 @@ def generate_amazing_monster():
             f.write(f"## Special Abilities\n")
             special_abilities = refined_monster.get('special_abilities', [])
             for ability in special_abilities:
-                f.write(f"### {ability.get('name', 'Unnamed Ability')}\n")
-                f.write(f"{ability.get('description', 'No description available')}\n\n")
+                # Handle both dictionary and string formats
+                if isinstance(ability, dict):
+                    name = ability.get('name', 'Unnamed Ability')
+                    description = ability.get('description', 'No description available')
+                elif isinstance(ability, str):
+                    name = 'Unnamed Ability'
+                    description = ability
+                else:
+                    continue
+                
+                f.write(f"### {name}\n")
+                f.write(f"{description}\n\n")
             
             f.write(f"## Actions\n")
             actions = refined_monster.get('actions', [])
             for action in actions:
-                f.write(f"### {action.get('name', 'Unnamed Action')}\n")
-                f.write(f"{action.get('description', 'No description available')}\n\n")
+                # Handle both dictionary and string formats
+                if isinstance(action, dict):
+                    name = action.get('name', 'Unnamed Action')
+                    description = action.get('description', 'No description available')
+                elif isinstance(action, str):
+                    name = 'Unnamed Action'
+                    description = action
+                else:
+                    continue
+                
+                f.write(f"### {name}\n")
+                f.write(f"{description}\n\n")
             
             f.write(f"## Lore\n")
             f.write(f"{refined_monster.get('lore', 'No lore available')}\n")
