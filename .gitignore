@@ -35,3 +35,5 @@ Thumbs.db
 
 # Project-specific ignores
 # Add any specific files or directories you want to ignore below
+.env  # Explicitly ignore .env file
+*.env  # Ignore any .env files
